@@ -78,6 +78,8 @@ static void* manage_light(void* arg)
   return(0);
 }
 
+static pthread_mutex_t      basic_intersection          = PTHREAD_MUTEX_INITIALIZER;
+
 
 int main(int argc, char * argv[])
 {
@@ -94,10 +96,44 @@ int main(int argc, char * argv[])
   start_time();
   
   // TODO: create a thread per traffic light that executes manage_light
+  pthread_t threads[10];
+  for (int i = 0; i < 10; i++) {
+    int* thread_id = malloc(sizeof(int));  // we have to think what value we need to pass as arg for manage_light
+    *thread_id = i;
+
+    int rtnval = pthread_create(&threads[i], NULL, manage_light, thread_id);
+    if (rtnval != 0) {
+      printf("Thread creation failed with error code: %d\n", rtnval);
+      exit(1);
+    }
+    printf("Thread %d created successfully\n", i);
+  }
 
   // TODO: create a thread that executes supply_arrivals
+  pthread_t supply_thread;
+  int rtnval = pthread_create(&supply_thread, NULL, supply_arrivals, NULL);
+  if (rtnval != 0) {
+    printf("Supply thread creation failed with error code: %d\n", rtnval);
+    exit(1);
+  }
+  printf("Supply thread %d created successfully\n");
 
   // TODO: wait for all threads to finish
+  for (int i = 0; i < 10; i++) {
+    rtnval = pthread_join(threads[i], NULL);
+    if (rtnval != 0) {
+      printf("Thread %d join failed with error code: %d\n", i, rtnval);
+      exit(2);
+    }
+    printf("Thread %d joined\n", i);
+  }
+
+  rtnval = pthread_join(supply_thread, NULL);
+  if (rtnval != 0) {
+    printf("Supply thread join failed with error code: %d\n", rtnval);
+    exit(2);
+  }
+  printf("Supply thread %d joined\n");
 
   // destroy semaphores
   for (int i = 0; i < 4; i++)
@@ -107,4 +143,6 @@ int main(int argc, char * argv[])
       sem_destroy(&semaphores[i][j]);
     }
   }
+
+  return 0;
 }
