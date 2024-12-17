@@ -37,6 +37,8 @@ static sem_t semaphores[4][4];
  */
 static void* supply_arrivals()
 {
+  printf("starting to supply");
+
   int t = 0;
   int num_curr_arrivals[4][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
 
@@ -55,6 +57,8 @@ static void* supply_arrivals()
     sem_post(&semaphores[arrival.side][arrival.direction]);
   }
 
+  printf("done supplying");
+
   return(0);
 }
 
@@ -66,6 +70,7 @@ static void* supply_arrivals()
  */
 static void* manage_light(void* arg)
 {
+  printf("light on\n");
   // TODO:
   // while not all arrivals have been handled, repeatedly:
   //  - wait for an arrival using the semaphore for this traffic light
@@ -93,11 +98,17 @@ int main(int argc, char * argv[])
   // start the timer
   start_time();
   
-  // TODO: create a thread per traffic light that executes manage_light
+  // create a thread per traffic light that executes manage_light
+  pthread_t light_thread;
+  pthread_create(&light_thread, NULL, manage_light, NULL);
 
-  // TODO: create a thread that executes supply_arrivals
+  // create a thread that executes supply_arrivals
+  pthread_t arrivals_thread;
+  pthread_create(&arrivals_thread, NULL, supply_arrivals, NULL);
 
-  // TODO: wait for all threads to finish
+  // wait for all threads to finish
+  pthread_join(light_thread, NULL);
+  pthread_join(arrivals_thread, NULL);
 
   // destroy semaphores
   for (int i = 0; i < 4; i++)
