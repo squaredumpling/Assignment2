@@ -37,7 +37,7 @@ static sem_t semaphores[4][4];
  */
 static void* supply_arrivals()
 {
-  printf("starting to supply");
+  printf("starting to supply\n");
 
   int t = 0;
   int num_curr_arrivals[4][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
@@ -57,7 +57,7 @@ static void* supply_arrivals()
     sem_post(&semaphores[arrival.side][arrival.direction]);
   }
 
-  printf("done supplying");
+  printf("done supplying\n");
 
   return(0);
 }
@@ -70,7 +70,6 @@ static void* supply_arrivals()
  */
 static void* manage_light(void* arg)
 {
-  printf("light on\n");
   // TODO:
   // while not all arrivals have been handled, repeatedly:
   //  - wait for an arrival using the semaphore for this traffic light
@@ -80,6 +79,10 @@ static void* manage_light(void* arg)
   //  - make the traffic light turn red
   //  - unlock the right mutex(es)
 
+  while(true) {
+    break;
+  }
+
   return(0);
 }
 
@@ -87,34 +90,45 @@ static void* manage_light(void* arg)
 int main(int argc, char * argv[])
 {
   // create semaphores to wait/signal for arrivals
-  for (int i = 0; i < 4; i++)
-  {
-    for (int j = 0; j < 4; j++)
-    {
+  for (int i = 0; i < 4; i++){
+    for (int j = 0; j < 4; j++){
       sem_init(&semaphores[i][j], 0, 0);
     }
   }
 
   // start the timer
   start_time();
-  
+
+
   // create a thread per traffic light that executes manage_light
-  pthread_t light_thread;
-  pthread_create(&light_thread, NULL, manage_light, NULL);
+  pthread_t traffic_threads[10];
+  for (int i = 0; i < 10; i++) {
+    int traffic_create_error = pthread_create(&traffic_threads[i], NULL, manage_light, &i);
+    if (traffic_create_error) { printf("Thread creation failed with error code: %d\n", traffic_create_error); exit(1); }
+    printf("Thread %d created successfully\n", i);
+  }
 
   // create a thread that executes supply_arrivals
-  pthread_t arrivals_thread;
-  pthread_create(&arrivals_thread, NULL, supply_arrivals, NULL);
+  pthread_t supply_thread;
+  int supply_create_error = pthread_create(&supply_thread, NULL, supply_arrivals, NULL);
+  if (supply_create_error) { printf("Supply thread creation failed with code: %d\n", supply_create_error); exit(1); }
+  printf("Supply thread created successfully\n");
 
-  // wait for all threads to finish
-  pthread_join(light_thread, NULL);
-  pthread_join(arrivals_thread, NULL);
+  // wait for all traffic light threads to finish
+  for (int i = 0; i < 10; i++) {
+    int traffic_join_error = pthread_join(traffic_threads[i], NULL);
+    if (traffic_join_error) { printf("Thread %d join failed with code: %d\n", i, traffic_join_error); exit(2); }
+    printf("Thread %d finished\n", i);
+  }
+
+  // wait for supply thread to finish
+  int supply_join_error = pthread_join(supply_thread, NULL);
+  if (supply_join_error) { printf("Supply thread join failed with error code: %d\n", supply_join_error); exit(2); }
+  printf("Supply thread finished\n");
 
   // destroy semaphores
-  for (int i = 0; i < 4; i++)
-  {
-    for (int j = 0; j < 4; j++)
-    {
+  for (int i = 0; i < 4; i++){
+    for (int j = 0; j < 4; j++){
       sem_destroy(&semaphores[i][j]);
     }
   }
