@@ -66,6 +66,12 @@ static void* supply_arrivals()
  */
 static void* manage_light(void* arg)
 {
+  sem_t semaphore = *(sem_t*)arg;
+  free(arg);
+
+  while (1) {
+    sem_wait(&semaphore);
+  }
   // TODO:
   // while not all arrivals have been handled, repeatedly:
   //  - wait for an arrival using the semaphore for this traffic light
@@ -98,13 +104,17 @@ int main(int argc, char * argv[])
 
   // TODO: create a thread per traffic light that executes manage_light
   pthread_t threads[10];
-  for (int i = 0; i < 10; i++) {
-    int* thread_id = malloc(sizeof(int));  // we have to think what value we need to pass as arg for manage_light
-    *thread_id = i;
+  for (int i = 0; i < 16; i++) {
+    int side = i / 4;
+    int dir = i % 4;
 
-    int rtnval = pthread_create(&threads[i], NULL, manage_light, thread_id);
-    if (rtnval != 0) {
-      printf("Thread creation failed with error code: %d\n", rtnval);
+    if (side == 0 || (side % 2 == 1 && dir == 3)) continue;
+    sem_t* semaphore = malloc(sizeof(semaphores));
+    *semaphore = semaphores[side][dir];
+
+    int errNo = pthread_create(&threads[i], NULL, manage_light, semaphore);
+    if (errNo != 0) {
+      printf("Thread creation failed with error code: %d\n", errNo);
       exit(1);
     }
     printf("Thread %d created successfully\n", i);
@@ -113,31 +123,29 @@ int main(int argc, char * argv[])
 
   // TODO: create a thread that executes supply_arrivals
   pthread_t supply_thread;
-  int rtnval = pthread_create(&supply_thread, NULL, supply_arrivals, NULL);
-  if (rtnval != 0) {
-    printf("Supply thread creation failed with error code: %d\n", rtnval);
+  int errNo = pthread_create(&supply_thread, NULL, supply_arrivals, NULL);
+  if (errNo != 0) {
+    printf("Supply thread creation failed with error code: %d\n", errNo);
     exit(1);
   }
   printf("Supply thread %d created successfully\n");
 
   // TODO: wait for all threads to finish
-  int* rtval;
+  errNo = pthread_join(supply_thread, NULL);
+  if (errNo != 0) {
+    printf("Supply thread join failed with error code: %d\n", errNo);
+    exit(2);
+  }
+  printf("Supply thread %d joined\n");
 
   for (int i = 0; i < 10; i++) {
-    pthread_join(threads[i], (void **) &rtval);
-    if (*rtval != 0) {
-      printf("Thread %d join failed with error code: %d\n", i, *rtval);
+    errNo = pthread_join(threads[i], NULL);
+    if (errNo != 0) {
+      printf("Thread %d join failed with error code: %d\n", i, errNo);
       exit(2);
     }
     printf("Thread %d joined\n", i);
   }
-
-  pthread_join(supply_thread, (void **) &rtval);
-  if (*rtval != 0) {
-    printf("Supply thread join failed with error code: %d\n", *rtval);
-    exit(2);
-  }
-  printf("Supply thread %d joined\n");
 
 
   // destroy semaphores
