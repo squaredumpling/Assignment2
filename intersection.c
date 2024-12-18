@@ -10,6 +10,14 @@
 #include "intersection_time.h"
 #include "input.h"
 
+typedef struct {
+  int side, direction, thread_id;
+  bool is_valid;
+  sem_t* semaphore;
+} TrafficLight;
+
+static pthread_mutex_t      basic_intersection          = PTHREAD_MUTEX_INITIALIZER;
+
 /* 
  * curr_arrivals[][][]
  *
@@ -19,6 +27,22 @@
  *   ordered in the same order as they arrived
  */
 static Arrival curr_arrivals[4][4][20];
+
+int getNextArrival(const int side, const int direction, Arrival* arrival) {
+  static int indexes[4][4] = {0};
+  static int N_ARRIVALS = sizeof(input_arrivals) / sizeof(Arrival);
+  static int total_cars_handled = 0;
+
+  if (total_cars_handled > N_ARRIVALS) {
+    return -1;
+  }
+
+  int i = indexes[side][direction];
+  *arrival = curr_arrivals[side][direction][i];
+  ++indexes[side][direction];
+  ++total_cars_handled;
+  return 0;
+}
 
 /*
  * semaphores[][]
@@ -66,11 +90,28 @@ static void* supply_arrivals()
  */
 static void* manage_light(void* arg)
 {
-  sem_t semaphore = *(sem_t*)arg;
+  TrafficLight tf = *(TrafficLight*)arg;
   free(arg);
 
-  while (1) {
-    sem_wait(&semaphore);
+  // printf("On thread %lx (%d)\n", pthread_self(), tf.thread_id);
+  // printf("Side: %d\nDirection: %d\nIs valid: %d\n", tf.side, tf.direction, (int)tf.is_valid);
+
+  struct timespec timeout;
+  clock_gettime(CLOCK_REALTIME, &timeout);
+
+  Arrival arrival;
+  int ok = 0;
+  while (tf.is_valid == true) {
+    timeout.tv_sec += END_TIME - get_time_passed(); // how many seconds need to pass to trigger timeout
+    if (sem_timedwait(tf.semaphore, &timeout) == -1) break;
+    ok = getNextArrival(tf.side, tf.direction, &arrival);
+    if (ok == -1) break;
+    // printf("Side: %d Direction: %d ID: %d Time %d\n", arrival.side, arrival.direction, arrival.id, arrival.time);
+    pthread_mutex_lock(&basic_intersection);
+    printf("traffic light %d %d turns green at %d for car %d\n", tf.side, tf.direction, get_time_passed(), arrival.id);
+    sleep(CROSS_TIME);
+    pthread_mutex_unlock(&basic_intersection);
+    printf("traffic light %d %d turns red at %d\n", tf.side, tf.direction, get_time_passed());
   }
   // TODO:
   // while not all arrivals have been handled, repeatedly:
@@ -80,11 +121,9 @@ static void* manage_light(void* arg)
   //  - sleep for CROSS_TIME seconds
   //  - make the traffic light turn red
   //  - unlock the right mutex(es)
-
+  // printf("Exit thread %lx (%d)\n", pthread_self(), tf.thread_id);
   return(0);
 }
-
-static pthread_mutex_t      basic_intersection          = PTHREAD_MUTEX_INITIALIZER;
 
 
 int main(int argc, char * argv[])
@@ -103,21 +142,23 @@ int main(int argc, char * argv[])
 
 
   // TODO: create a thread per traffic light that executes manage_light
-  pthread_t threads[10];
+  pthread_t threads[16];
   for (int i = 0; i < 16; i++) {
-    int side = i / 4;
-    int dir = i % 4;
+    TrafficLight* tf = malloc(sizeof(TrafficLight));
+    tf->side = i / 4;
+    tf->direction = i % 4;
+    tf->is_valid = true;
+    tf->thread_id = i;
+    tf->semaphore = &semaphores[tf->side][tf->direction];
 
-    if (side == 0 || (side % 2 == 1 && dir == 3)) continue;
-    sem_t* semaphore = malloc(sizeof(semaphores));
-    *semaphore = semaphores[side][dir];
+    if (tf->side == 0 || (tf->side % 2 == 1 && tf->direction == 3)) tf->is_valid = false;
 
-    int errNo = pthread_create(&threads[i], NULL, manage_light, semaphore);
+    int errNo = pthread_create(&threads[i], NULL, manage_light, tf);
     if (errNo != 0) {
       printf("Thread creation failed with error code: %d\n", errNo);
       exit(1);
     }
-    printf("Thread %d created successfully\n", i);
+    // printf("Thread %d created successfully\n", i);
   }
 
 
@@ -128,7 +169,7 @@ int main(int argc, char * argv[])
     printf("Supply thread creation failed with error code: %d\n", errNo);
     exit(1);
   }
-  printf("Supply thread %d created successfully\n");
+  // printf("Supply thread created successfully\n");
 
   // TODO: wait for all threads to finish
   errNo = pthread_join(supply_thread, NULL);
@@ -136,15 +177,15 @@ int main(int argc, char * argv[])
     printf("Supply thread join failed with error code: %d\n", errNo);
     exit(2);
   }
-  printf("Supply thread %d joined\n");
+  // printf("Supply thread joined\n");
 
-  for (int i = 0; i < 10; i++) {
+  for (int i = 0; i < 16; i++) {
     errNo = pthread_join(threads[i], NULL);
     if (errNo != 0) {
       printf("Thread %d join failed with error code: %d\n", i, errNo);
       exit(2);
     }
-    printf("Thread %d joined\n", i);
+    // printf("Thread %d joined\n", i);
   }
 
 
