@@ -10,6 +10,16 @@
 #include "intersection_time.h"
 #include "input.h"
 
+#define NANOSEC 1000000000
+
+typedef struct{
+  int side; 
+  int direction;
+  int exit;
+} Lane;
+
+static pthread_mutex_t basic_intersection = PTHREAD_MUTEX_INITIALIZER;
+
 /* 
  * curr_arrivals[][][]
  *
@@ -51,7 +61,7 @@ static void* supply_arrivals()
     sleep(arrival.time - t);
     t = arrival.time;
     // store the new arrival in curr_arrivals
-    curr_arrivals[arrival.side][arrival.direction][num_curr_arrivals[arrival.side][arrival.direction]] = arrival;
+    curr_arrivals[arrival.side][arrival.direction][0] = arrival;
     num_curr_arrivals[arrival.side][arrival.direction] += 1;
     // increment the semaphore for the traffic light that the arrival is for
     sem_post(&semaphores[arrival.side][arrival.direction]);
@@ -70,17 +80,35 @@ static void* supply_arrivals()
  */
 static void* manage_light(void* arg)
 {
-  // TODO:
-  // while not all arrivals have been handled, repeatedly:
-  //  - wait for an arrival using the semaphore for this traffic light
-  //  - lock the right mutex(es)
-  //  - make the traffic light turn green
-  //  - sleep for CROSS_TIME seconds
-  //  - make the traffic light turn red
-  //  - unlock the right mutex(es)
+  Lane lane = *(Lane*)arg;
+  struct timespec ts;
 
+  // while not all arrivals have been handled keep manging
   while(true) {
-    break;
+    // wait for an arrival using the semaphore for this traffic light or timeout after END_TIME seconds
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec += END_TIME;
+    int wait_error = sem_timedwait(&semaphores[lane.side][lane.direction], &ts);
+
+    if (wait_error) { printf("Thread %d %d timeout\n", lane.side, lane.direction); break; }
+
+    printf("Thread %d %d waiting on mutex\n", lane.side, lane.direction);
+
+    // lock the mutex
+    pthread_mutex_lock(&basic_intersection);
+
+    // make the traffic light turn green
+    printf("Traffic light %d %d turns green at time %d for car %d\n", 
+    lane.side, lane.direction, get_time_passed(), curr_arrivals[lane.side][lane.direction][0].id);
+
+    // sleep for CROSS_TIME seconds
+    sleep(CROSS_TIME);
+
+    // make the traffic light turn red
+    printf("Traffic light %d %d turns red at time %d\n", lane.side, lane.direction, get_time_passed());
+
+    // unlock the mutex
+    pthread_mutex_unlock(&basic_intersection);
   }
 
   return(0);
@@ -99,13 +127,15 @@ int main(int argc, char * argv[])
   // start the timer
   start_time();
 
+  // initialize proprties of lanes
+  Lane lanes[10] = {{1, 0, 2}, {1, 1, 3}, {1, 2, 0}, {2, 0, 3}, {2, 1, 0}, {2, 2, 1}, {2, 3, 2}, {3, 0, 0}, {3, 1, 1}, {3, 2, 2}};
 
   // create a thread per traffic light that executes manage_light
   pthread_t traffic_threads[10];
   for (int i = 0; i < 10; i++) {
-    int traffic_create_error = pthread_create(&traffic_threads[i], NULL, manage_light, &i);
+    int traffic_create_error = pthread_create(&traffic_threads[i], NULL, manage_light, &lanes[i]);
     if (traffic_create_error) { printf("Thread creation failed with error code: %d\n", traffic_create_error); exit(1); }
-    printf("Thread %d created successfully\n", i);
+    printf("Thread %d %d created successfully\n", lanes[i].side, lanes[i].direction);
   }
 
   // create a thread that executes supply_arrivals
@@ -117,8 +147,8 @@ int main(int argc, char * argv[])
   // wait for all traffic light threads to finish
   for (int i = 0; i < 10; i++) {
     int traffic_join_error = pthread_join(traffic_threads[i], NULL);
-    if (traffic_join_error) { printf("Thread %d join failed with code: %d\n", i, traffic_join_error); exit(2); }
-    printf("Thread %d finished\n", i);
+    if (traffic_join_error) { printf("Thread %d %d join failed with code: %d\n", lanes[i].side, lanes[i].direction, traffic_join_error); exit(2); }
+    printf("Thread %d %d finished\n", lanes[i].side, lanes[i].direction);
   }
 
   // wait for supply thread to finish
