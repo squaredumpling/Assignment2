@@ -28,19 +28,24 @@ static pthread_mutex_t      basic_intersection          = PTHREAD_MUTEX_INITIALI
  */
 static Arrival curr_arrivals[4][4][20];
 
-int getNextArrival(const int side, const int direction, Arrival* arrival) {
+int getNextArrival(const int side, const int direction, Arrival** arrival) {
   static int indexes[4][4] = {0};
   static int N_ARRIVALS = sizeof(input_arrivals) / sizeof(Arrival);
   static int total_cars_handled = 0;
 
-  if (total_cars_handled > N_ARRIVALS) {
-    return -1;
-  }
+  // printf("(%d, %d) %d - %d - %p\n", side, direction, indexes[side][direction], total_cars_handled, (void*)*arrival);
+  if (total_cars_handled == N_ARRIVALS) return -1;  // all cars have been handled
 
   int i = indexes[side][direction];
-  *arrival = curr_arrivals[side][direction][i];
-  ++indexes[side][direction];
-  ++total_cars_handled;
+  // int old_side = arrival->side, old_direction = arrival->direction, old_id = arrival->id, old_time = arrival->time;
+  Arrival* old_arrival_ptr = *arrival;
+  *arrival = &curr_arrivals[side][direction][i];
+  Arrival current_arrival = **arrival;
+  if (current_arrival.side == NORTH && old_arrival_ptr) return 0;  // Waiting for supply_arrivals to update value of curr_arrivals[side][direction][i]
+  // printf("New arrival address %p\n", (void*)*arrival);
+  total_cars_handled += indexes[side][direction]++;
+  // printf(" %d - %d\n", indexes[side][direction], total_cars_handled);
+
   return 0;
 }
 
@@ -98,23 +103,28 @@ static void* manage_light(void* arg)
 
   struct timespec timeout;
   clock_gettime(CLOCK_REALTIME, &timeout);
+  timeout.tv_sec += END_TIME; // how many seconds need to pass to trigger timeout
 
-  Arrival arrival;
-  int ok = 0;
-  while (tf.is_valid == true) {
-    timeout.tv_sec += END_TIME - get_time_passed(); // how many seconds need to pass to trigger timeout
-    if (sem_timedwait(tf.semaphore, &timeout) == -1) break;
-    ok = getNextArrival(tf.side, tf.direction, &arrival);
-    if (ok == -1) break;
-    // printf("Side: %d Direction: %d ID: %d Time %d\n", arrival.side, arrival.direction, arrival.id, arrival.time);
+  Arrival* arrival = NULL;
+  while (tf.is_valid == true && getNextArrival(tf.side, tf.direction, &arrival) == 0) {
+
+    // printf("Side: %d Direction: %d ID: %d Time %d\n", arrival->side, arrival->direction, arrival->id, arrival->time);
+    // printf("Time left 'till timeout: %ds\n", END_TIME - get_time_passed());
+    if (sem_timedwait(tf.semaphore, &timeout) == -1)  break;
+    // printf("(%d) New Side: %d Direction: %d ID: %d Time %d\n", tf.thread_id, arrival->side, arrival->direction, arrival->id, arrival->time);
+
     pthread_mutex_lock(&basic_intersection);
-    printf("traffic light %d %d turns green at %d for car %d\n", tf.side, tf.direction, get_time_passed(), arrival.id);
+    printf("traffic light %d %d turns green at %d for car %d\n", tf.side, tf.direction, get_time_passed(), arrival->id);
+
     sleep(CROSS_TIME);
-    pthread_mutex_unlock(&basic_intersection);
+
     printf("traffic light %d %d turns red at %d\n", tf.side, tf.direction, get_time_passed());
+    pthread_mutex_unlock(&basic_intersection);
   }
+
+  // free(arrival);
   // TODO:
-  // while not all arrivals have been handled, repeatedly:
+  // while not all arrivals have been ha- get_time_passed()ndled, repeatedly:
   //  - wait for an arrival using the semaphore for this traffic light
   //  - lock the right mutex(es)
   //  - make the traffic light turn green
@@ -198,5 +208,7 @@ int main(int argc, char * argv[])
     }
   }
 
+  // printf("Elapsed time: %d\n", get_time_passed());
+  // printf("All threads finished\n");
   return 0;
 }
