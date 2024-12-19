@@ -11,15 +11,30 @@
 #include "input.h"
 
 typedef struct{
+  int index;
   int side; 
   int direction;
   int exit;
 } Lane;
 
-//static pthread_mutex_t basic_intersection = PTHREAD_MUTEX_INITIALIZER;
+// the mutexes controlling what lane is blocked due to a car passing
+static sem_t lane_block[10];
 
-// the mutexes controlling what exit is blocked due to a car passing
+// only allows one light to change the others locks at a time
 static pthread_mutex_t traffic_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static bool intersect[10][10] = {
+{0, 0, 0, 1, 1, 0, 1, 0, 1, 1},
+{0, 0, 0, 1, 1, 0, 0, 1, 0, 0},
+{0, 0, 0, 0, 1, 0, 0, 1, 0, 0},
+{1, 1, 0, 0, 0, 0, 0, 1, 1, 0},
+{1, 1, 1, 0, 0, 0, 0, 1, 1, 0},
+{0, 0, 0, 0, 0, 0, 0, 0, 1, 0},
+{1, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+{0, 1, 1, 1, 1, 0, 0, 0, 0, 0},
+{1, 0, 0, 1, 1, 1, 0, 0, 0, 0},
+{1, 0, 0, 0, 0, 0, 1, 0, 0, 0},
+};
 
 /* 
  * curr_arrivals[][][]
@@ -29,7 +44,7 @@ static pthread_mutex_t traffic_lock = PTHREAD_MUTEX_INITIALIZER;
  * curr_arrivals[s][d] returns an array of all arrivals for the entry lane on side s for direction d,
  *   ordered in the same order as they arrived
  */
-static Arrival curr_arrivals[4][4];
+static Arrival curr_arrivals[4][4][20];
 
 /*
  * semaphores[][]
@@ -48,25 +63,32 @@ static sem_t semaphores[4][4];
  */
 static void* supply_arrivals()
 {
-  int t = 0;
-
-  // for every arrival in the list
-  for (int i = 0; i < sizeof(input_arrivals)/sizeof(Arrival); i++)
-  {
-    // get the next arrival in the list
-    Arrival arrival = input_arrivals[i];
-    // wait until this arrival is supposed to arrive
-    sleep(arrival.time - t);
-    t = arrival.time;
-    // store the new arrival in curr_arrivals
-    curr_arrivals[arrival.side][arrival.direction] = arrival;
-    // increment the semaphore for the traffic light that the arrival is for
-    sem_post(&semaphores[arrival.side][arrival.direction]);
-  }
-
-  return(0);
+    int t = 0;
+    int num_curr_arrivals[4][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
+    // for every arrival in the list
+    for (int i = 0; i < sizeof(input_arrivals)/sizeof(Arrival); i++)
+    {
+        // get the next arrival in the list
+        Arrival arrival = input_arrivals[i];
+        // wait until this arrival is supposed to arrive
+        sleep(arrival.time - t);
+        t = arrival.time;
+        // store the new arrival in curr_arrivals
+        curr_arrivals[arrival.side][arrival.direction][num_curr_arrivals[arrival.side][arrival.direction]] = arrival;
+        num_curr_arrivals[arrival.side][arrival.direction] += 1;
+        // increment the semaphore for the traffic light that the arrival is for
+        sem_post(&semaphores[arrival.side][arrival.direction]);
+        return(0);
+    }
 }
 
+static void advanced_lock(int index) 
+{ 
+    for (int i = 0; i < 10; i++) {
+        if (intersect[index][i]);
+        sem_post(&lane_block[index]);
+    }
+}
 
 /*
  * manage_light(void* arg)
@@ -77,6 +99,9 @@ static void* manage_light(void* arg)
 {
   // convert argument to lane stucture
   Lane lane = *(Lane*)arg;
+
+  // the amount of cars that have passed
+  int count = 0;
 
   // read system time and add the maximum time allowed before timeout
   struct timespec system_time;
@@ -93,23 +118,21 @@ static void* manage_light(void* arg)
       break; 
     }
 
-    //printf("Thread %d %d waiting on mutex\n", lane.side, lane.direction);
-
-    // lock the mutex
+    // lock the edit mutex and check if car can go then lock the lanes
     pthread_mutex_lock(&traffic_lock);
 
     // make the traffic light turn green
-    printf("traffic light %d %d turns green at time %d for car %d\n", 
-    lane.side, lane.direction, get_time_passed(), curr_arrivals[lane.side][lane.direction].id);
+    printf("Traffic light %d %d turns green at time %d for car %d\n", 
+    lane.side, lane.direction, get_time_passed(), curr_arrivals[lane.side][lane.direction][count].id);
 
     // sleep for CROSS_TIME seconds
     sleep(CROSS_TIME);
 
     // make the traffic light turn red
-    printf("traffic light %d %d turns red at time %d\n", lane.side, lane.direction, get_time_passed());
+    printf("Traffic light %d %d turns red at time %d\n", lane.side, lane.direction, get_time_passed());
 
     // unlock the mutex
-    pthread_mutex_unlock(&traffic_lock);
+    pthread_mutex_lock(&traffic_lock);
   }
 
   return(0);
@@ -124,6 +147,10 @@ int main(int argc, char * argv[])
       sem_init(&semaphores[i][j], 0, 0);
     }
   }
+
+  // initialize mutex exit array
+  for (int i = 0; i < 4; i++) 
+    pthread_mutex_init(&lane_block[i], NULL);
 
   // start the timer
   start_time();
