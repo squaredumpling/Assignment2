@@ -21,16 +21,16 @@ static pthread_mutex_t lane_block[10];
 
 // the matrix representing the intersetion paths of cars
 static bool intersect[10][10] = {
-    {1, 0, 0, 1, 1, 0, 1, 0, 1, 1}, // 0
-    {0, 1, 0, 1, 1, 0, 0, 1, 0, 0}, // 1
-    {0, 0, 1, 0, 1, 0, 0, 1, 0, 0}, // 2
-    {1, 1, 0, 1, 0, 0, 0, 1, 1, 0}, // 3
-    {1, 1, 1, 0, 1, 0, 0, 1, 1, 0}, // 4
-    {0, 0, 0, 0, 0, 1, 0, 0, 1, 0}, // 5
-    {1, 0, 0, 0, 0, 0, 1, 0, 0, 1}, // 6
-    {0, 1, 1, 1, 1, 0, 0, 1, 0, 0}, // 7
-    {1, 0, 0, 1, 1, 1, 0, 0, 1, 0}, // 8
-    {1, 0, 0, 0, 0, 0, 1, 0, 0, 1}, // 9
+    {0, 0, 0, 1, 1, 0, 1, 0, 1, 1}, // 0
+    {0, 0, 0, 1, 1, 0, 0, 1, 0, 0}, // 1
+    {0, 0, 0, 0, 1, 0, 0, 1, 0, 0}, // 2
+    {1, 1, 0, 0, 0, 0, 0, 1, 1, 0}, // 3
+    {1, 1, 1, 0, 0, 0, 0, 1, 1, 0}, // 4
+    {0, 0, 0, 0, 0, 0, 0, 0, 1, 0}, // 5
+    {1, 0, 0, 0, 0, 0, 0, 0, 0, 1}, // 6
+    {0, 1, 1, 1, 1, 0, 0, 0, 0, 0}, // 7
+    {1, 0, 0, 1, 1, 1, 0, 0, 0, 0}, // 8
+    {1, 0, 0, 0, 0, 0, 1, 0, 0, 0}, // 9
 };
 
 /* 
@@ -84,8 +84,8 @@ void advanced_lock(int index)
 { 
     for (int i = 0; i < 10; i++) {
         if (intersect[index][i]) {
-            // printf("%d unlocked %d\n", index, i);
-            pthread_mutex_lock(&lane_block[i]);
+            // printf("%d locked %d\n", index, i);
+            pthread_mutex_trylock(&lane_block[i]);
         }
     }
 }
@@ -126,21 +126,29 @@ static void* manage_light(void* arg)
         
         if (wait_error) break;
 
-        // lock the the lanes
+        // wait to lock yourself
+        pthread_mutex_lock(&lane_block[lane.index]);
+
+        // lock the open lanes
         advanced_lock(lane.index);
 
         // make the traffic light turn green
-        printf("Traffic light %d %d turns green at time %d for car %d\n", 
+        printf("traffic light %d %d turns green at time %d for car %d\n", 
         lane.side, lane.direction, get_time_passed(), curr_arrivals[lane.side][lane.direction][count].id);
 
         // sleep for CROSS_TIME seconds
         sleep(CROSS_TIME);
 
         // make the traffic light turn red
-        printf("Traffic light %d %d turns red at time %d\n", lane.side, lane.direction, get_time_passed());
-
+        printf("traffic light %d %d turns red at time %d\n", lane.side, lane.direction, get_time_passed());
+        
         // unlock the lanes
         advanced_unlock(lane.index);
+
+        // unlock yourself
+        pthread_mutex_unlock(&lane_block[lane.index]);
+
+        count++;
     }
 
     return(0);
