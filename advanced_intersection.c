@@ -84,8 +84,8 @@ void advanced_lock(int index)
 { 
     for (int i = 0; i < 10; i++) {
         if (intersect[index][i]) {
-            printf("%d unlocked %d\n", index, i);
-            pthread_mutex_lock(&lane_block[index]);
+            // printf("%d unlocked %d\n", index, i);
+            pthread_mutex_lock(&lane_block[i]);
         }
     }
 }
@@ -95,8 +95,8 @@ void advanced_unlock(int index)
 { 
     for (int i = 0; i < 10; i++) {
         if (intersect[index][i]) {
-            printf("%d unlocked %d\n", index, i);
-            pthread_mutex_unlock(&lane_block[index]);
+            // printf("%d unlocked %d\n", index, i);
+            pthread_mutex_unlock(&lane_block[i]);
         }
     }
 }
