@@ -99,18 +99,20 @@ static void* manage_light(void* arg)
   clock_gettime(CLOCK_REALTIME, &timeout);
   timeout.tv_sec += END_TIME; // how many seconds need to pass to trigger timeout
 
-  Arrival* arrival = NULL;
-  while (tf.is_valid == true && getNextArrival(tf.side, tf.direction, &arrival) == 0) {
-
-    if (sem_trywait(tf.semaphore) == -1 && errno == EAGAIN)  {sleep(0); continue;}
+  int i = 0;
+  Arrival* arrival = &curr_arrivals[tf.side][tf.direction][i];
+  while (tf.is_valid == true) {
+    if (sem_timedwait(tf.semaphore, &timeout) == -1 && errno == ETIMEDOUT) break;
 
     if (pthread_mutex_timedlock(&basic_intersection, &timeout) != 0) break;
-    printf("traffic light %d %d turns green at %d for car %d\n", tf.side, tf.direction, get_time_passed(), arrival->id);
+    printf("traffic light %d %d turns green at time %d for car %d\n", tf.side, tf.direction, get_time_passed(), arrival->id);
 
     sleep(CROSS_TIME);
 
-    printf("traffic light %d %d turns red at %d\n", tf.side, tf.direction, get_time_passed());
+    printf("traffic light %d %d turns red at time %d\n", tf.side, tf.direction, get_time_passed());
     pthread_mutex_unlock(&basic_intersection);
+
+    arrival = &curr_arrivals[tf.side][tf.direction][++i];
   }
 
   return(0);
